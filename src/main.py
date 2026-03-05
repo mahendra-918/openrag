@@ -3,7 +3,6 @@ import asyncio
 import atexit
 import hashlib
 import httpx
-import json
 import os
 import subprocess
 
@@ -395,6 +394,7 @@ async def ingest_default_documents_when_ready(
             )
         if use_url_ingest:
             await _ingest_default_documents_url(
+                langflow_file_service=langflow_file_service,
                 session_manager=session_manager,
                 docs_url=DEFAULT_DOCS_URL,
                 crawl_depth=DEFAULT_DOCS_CRAWL_DEPTH,
@@ -508,17 +508,13 @@ async def _ingest_default_documents_langflow(
 
 
 async def _ingest_default_documents_url(
-    session_manager, docs_url: str, crawl_depth: int
+    langflow_file_service, session_manager, docs_url: str, crawl_depth: int
 ):
     """Ingest default docs by crawling a URL with the Langflow URL ingest flow."""
-    if not LANGFLOW_URL_INGEST_FLOW_ID:
-        raise ValueError("LANGFLOW_URL_INGEST_FLOW_ID is not configured")
-    if not docs_url:
-        raise ValueError("DEFAULT_DOCS_URL is not configured")
+    if langflow_file_service is None:
+        raise ValueError("LangflowFileService is not available")
 
     from session_manager import AnonymousUser
-    from utils.langflow_headers import add_provider_credentials_to_headers
-    from config.settings import get_openrag_config
 
     anonymous_user = AnonymousUser()
     effective_jwt = None
@@ -529,48 +525,21 @@ async def _ingest_default_documents_url(
         if hasattr(session_manager, "_anonymous_jwt"):
             effective_jwt = session_manager._anonymous_jwt
 
-    payload = {
-        "input_value": docs_url,
-        "input_type": "chat",
-        "output_type": "text",
-    }
-    config = get_openrag_config()
-    headers = {
-        "X-Langflow-Global-Var-JWT": str(effective_jwt) if effective_jwt else "",
-        "X-Langflow-Global-Var-OWNER": "",
-        "X-Langflow-Global-Var-OWNER_NAME": str(anonymous_user.name),
-        "X-Langflow-Global-Var-OWNER_EMAIL": str(anonymous_user.email),
-        "X-Langflow-Global-Var-CONNECTOR_TYPE": "system_default",
-        "X-Langflow-Global-Var-SELECTED_EMBEDDING_MODEL": str(
-            config.knowledge.embedding_model
-        ),
-        # Prefer global variable passthrough over component tweaks so the
-        # flow stays stable even if component IDs change.
-        "X-Langflow-Global-Var-DOCS_URL": str(docs_url),
-        "X-Langflow-Global-Var-DOCS_URLS": json.dumps([docs_url]),
-        "X-Langflow-Global-Var-DOCS_CRAWL_DEPTH": str(crawl_depth),
-        "X-Langflow-Global-Var-DOCS_PREVENT_OUTSIDE": "true",
-    }
-    add_provider_credentials_to_headers(headers, config)
-
     logger.info(
         "Running default URL docs ingestion flow",
         docs_url=docs_url,
         crawl_depth=crawl_depth,
     )
-    resp = await clients.langflow_request(
-        "POST",
-        f"/api/v1/run/{LANGFLOW_URL_INGEST_FLOW_ID}",
-        json=payload,
-        headers=headers,
+    await langflow_file_service.run_url_ingestion_flow(
+        docs_url=docs_url,
+        crawl_depth=crawl_depth,
+        jwt_token=effective_jwt,
+        owner=None,
+        owner_name=anonymous_user.name,
+        owner_email=anonymous_user.email,
+        connector_type="system_default",
+        prevent_outside=True,
     )
-    if resp.status_code >= 400:
-        logger.error(
-            "Default URL docs ingestion failed",
-            status_code=resp.status_code,
-            body=resp.text[:1000],
-        )
-        resp.raise_for_status()
 
 
 async def _delete_existing_default_docs(session_manager):
