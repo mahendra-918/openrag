@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.tui.managers.container_manager import ContainerManager
+from tui.managers.container_manager import ContainerManager
 
 
 async def _collect(async_iterable):
