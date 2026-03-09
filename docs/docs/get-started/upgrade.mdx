@@ -81,6 +81,13 @@ The commands to upgrade the package depend on how you installed OpenRAG.
       uv add --upgrade openrag==0.1.33
       ```
 
+      To update `uv.lock`, and then sync the virtual environment separately:
+
+      ```bash
+      uv lock --upgrade-package openrag
+      uv sync
+      ```
+
    3. Start the OpenRAG terminal session:
 
       ```bash
